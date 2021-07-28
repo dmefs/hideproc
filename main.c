@@ -1,10 +1,10 @@
-#include "hideproc.h"
 #include <linux/cdev.h>
 #include <linux/ftrace.h>
 #include <linux/kallsyms.h>
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/proc_fs.h>
+#include "hideproc.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
@@ -18,26 +18,29 @@ struct ftrace_hook {
     struct ftrace_ops ops;
 };
 
-static int hook_resolve_addr(struct ftrace_hook *hook) {
+static int hook_resolve_addr(struct ftrace_hook *hook)
+{
     hook->address = kallsyms_lookup_name(hook->name);
     if (!hook->address) {
         printk("unresolved symbol: %s\n", hook->name);
         return -ENOENT;
     }
-    *((unsigned long *)hook->orig) = hook->address;
+    *((unsigned long *) hook->orig) = hook->address;
     return 0;
 }
 
 static void notrace hook_ftrace_thunk(unsigned long ip,
                                       unsigned long parent_ip,
                                       struct ftrace_ops *ops,
-                                      struct pt_regs *regs) {
+                                      struct pt_regs *regs)
+{
     struct ftrace_hook *hook = container_of(ops, struct ftrace_hook, ops);
     if (!within_module(parent_ip, THIS_MODULE))
-        regs->ip = (unsigned long)hook->func;
+        regs->ip = (unsigned long) hook->func;
 }
 
-static int hook_install(struct ftrace_hook *hook) {
+static int hook_install(struct ftrace_hook *hook)
+{
     int err = hook_resolve_addr(hook);
     if (err)
         return err;
@@ -83,38 +86,44 @@ LIST_HEAD(hidden_proc);
 typedef struct pid *(*find_ge_pid_func)(int nr, struct pid_namespace *ns);
 static find_ge_pid_func real_find_ge_pid;
 
-static bool is_hidden_proc(pid_t pid) {
+static bool is_hidden_proc(pid_t pid)
+{
     pid_node_t *proc, *tmp_proc;
-    list_for_each_entry_safe(proc, tmp_proc, &hidden_proc, list_node) {
+    list_for_each_entry_safe (proc, tmp_proc, &hidden_proc, list_node) {
         if (proc->id == pid)
             return true;
     }
     return false;
 }
 
-static struct pid *hook_find_ge_pid(int nr, struct pid_namespace *ns) {
+static struct pid *hook_find_ge_pid(int nr, struct pid_namespace *ns)
+{
     struct pid *pid = real_find_ge_pid(nr, ns);
     while (pid && is_hidden_proc(pid->numbers->nr))
         pid = real_find_ge_pid(pid->numbers->nr + 1, ns);
     return pid;
 }
 
-static struct ftrace_hook hook = HOOK("find_ge_pid", hook_find_ge_pid, &real_find_ge_pid);
+static struct ftrace_hook hook =
+    HOOK("find_ge_pid", hook_find_ge_pid, &real_find_ge_pid);
 
-static void init_hook(void) {
+static void init_hook(void)
+{
     hook_install(&hook);
 }
 
-static int hide_process(pid_t pid) {
+static int hide_process(pid_t pid)
+{
     pid_node_t *proc = kmalloc(sizeof(pid_node_t), GFP_KERNEL);
     proc->id = pid;
     list_add_tail(&proc->list_node, &hidden_proc);
     return SUCCESS;
 }
 
-static int unhide_process(pid_t pid) {
+static int unhide_process(pid_t pid)
+{
     pid_node_t *proc, *tmp_proc;
-    list_for_each_entry_safe(proc, tmp_proc, &hidden_proc, list_node) {
+    list_for_each_entry_safe (proc, tmp_proc, &hidden_proc, list_node) {
         list_del(&proc->list_node);
         kfree(proc);
     }
@@ -124,24 +133,27 @@ static int unhide_process(pid_t pid) {
 #define OUTPUT_BUFFER_FORMAT "pid: %d\n"
 #define MAX_MESSAGE_SIZE (sizeof(OUTPUT_BUFFER_FORMAT) + 4)
 
-static int device_open(struct inode *inode, struct file *file) {
+static int device_open(struct inode *inode, struct file *file)
+{
     return SUCCESS;
 }
 
-static int device_close(struct inode *inode, struct file *file) {
+static int device_close(struct inode *inode, struct file *file)
+{
     return SUCCESS;
 }
 
 static ssize_t device_read(struct file *filep,
                            char *buffer,
                            size_t len,
-                           loff_t *offset) {
+                           loff_t *offset)
+{
     pid_node_t *proc, *tmp_proc;
     char message[MAX_MESSAGE_SIZE];
     if (*offset)
         return 0;
 
-    list_for_each_entry_safe(proc, tmp_proc, &hidden_proc, list_node) {
+    list_for_each_entry_safe (proc, tmp_proc, &hidden_proc, list_node) {
         memset(message, 0, MAX_MESSAGE_SIZE);
         sprintf(message, OUTPUT_BUFFER_FORMAT, proc->id);
         copy_to_user(buffer + *offset, message, strlen(message));
@@ -153,7 +165,8 @@ static ssize_t device_read(struct file *filep,
 static ssize_t device_write(struct file *filep,
                             const char *buffer,
                             size_t len,
-                            loff_t *offset) {
+                            loff_t *offset)
+{
     long pid;
     char *message;
 
@@ -194,7 +207,8 @@ static const struct file_operations fops = {
 #define MINOR_VERSION 1
 #define DEVICE_NAME "hideproc"
 
-static int _hideproc_init(void) {
+static int _hideproc_init(void)
+{
     int err, dev_major;
     dev_t dev;
     printk(KERN_INFO "@ %s\n", __func__);
@@ -213,7 +227,8 @@ static int _hideproc_init(void) {
     return 0;
 }
 
-static void _hideproc_exit(void) {
+static void _hideproc_exit(void)
+{
     printk(KERN_INFO "@ %s\n", __func__);
     /* FIXME: ensure the release of all allocated resources */
     class_destroy(hideproc_class);
