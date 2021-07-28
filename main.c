@@ -64,7 +64,6 @@ static int hook_install(struct ftrace_hook *hook)
     return 0;
 }
 
-#if 0
 void hook_remove(struct ftrace_hook *hook)
 {
     int err = unregister_ftrace_function(&hook->ops);
@@ -74,7 +73,6 @@ void hook_remove(struct ftrace_hook *hook)
     if (err)
         printk("ftrace_set_filter_ip() failed: %d\n", err);
 }
-#endif
 
 typedef struct {
     pid_t id;
@@ -257,6 +255,7 @@ static void _hideproc_exit(void)
 {
     printk(KERN_INFO "@ %s\n", __func__);
     /* FIXME: ensure the release of all allocated resources */
+    hook_remove(&hook);
     device_destroy(hideproc_class, dev);
     cdev_del(&cdev);
     class_destroy(hideproc_class);
