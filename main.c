@@ -193,6 +193,7 @@ static ssize_t device_write(struct file *filep,
 
 static struct cdev cdev;
 static struct class *hideproc_class = NULL;
+static dev_t dev;
 
 static const struct file_operations fops = {
     .owner = THIS_MODULE,
