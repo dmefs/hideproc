@@ -257,7 +257,10 @@ static void _hideproc_exit(void)
 {
     printk(KERN_INFO "@ %s\n", __func__);
     /* FIXME: ensure the release of all allocated resources */
+    device_destroy(hideproc_class, dev);
+    cdev_del(&cdev);
     class_destroy(hideproc_class);
+    unregister_chrdev_region(dev, MINOR_VERSION);
 }
 
 module_init(_hideproc_init);
