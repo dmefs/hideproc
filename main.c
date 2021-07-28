@@ -209,22 +209,48 @@ static const struct file_operations fops = {
 
 static int _hideproc_init(void)
 {
-    int err, dev_major;
-    dev_t dev;
+    int err;
+    struct device *device;
+
     printk(KERN_INFO "@ %s\n", __func__);
     err = alloc_chrdev_region(&dev, 0, MINOR_VERSION, DEVICE_NAME);
-    dev_major = MAJOR(dev);
+    if (err) {
+        printk(KERN_ERR "hideproc: Couldn't alloc_chrdev_region, error=%d\n",
+               err);
+        goto out_chrdev;
+    }
 
     hideproc_class = class_create(THIS_MODULE, DEVICE_NAME);
+    if (IS_ERR(hideproc_class)) {
+        err = PTR_ERR(hideproc_class);
+        printk(KERN_ERR "hideproc: Couldn't class_create, error=%d\n", err);
+        goto out_class;
+    }
 
     cdev_init(&cdev, &fops);
-    cdev_add(&cdev, MKDEV(dev_major, MINOR_VERSION), 1);
-    device_create(hideproc_class, NULL, MKDEV(dev_major, MINOR_VERSION), NULL,
-                  DEVICE_NAME);
+    err = cdev_add(&cdev, dev, 1);
+    if (err) {
+        printk(KERN_ERR "hideproc: Couldn't cdev_add, error=%d\n", err);
+        goto out_cdev;
+    }
+    device = device_create(hideproc_class, NULL, dev, NULL, DEVICE_NAME);
+    if (IS_ERR(device)) {
+        err = PTR_ERR(device);
+        goto out_device;
+    }
 
     init_hook();
 
     return 0;
+
+out_device:
+    cdev_del(&cdev);
+out_cdev:
+    class_destroy(hideproc_class);
+out_class:
+    unregister_chrdev_region(dev, MINOR_VERSION);
+out_chrdev:
+    return err;
 }
 
 static void _hideproc_exit(void)
