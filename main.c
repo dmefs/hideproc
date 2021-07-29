@@ -1,9 +1,11 @@
 #include <linux/cdev.h>
+#include <linux/err.h>
 #include <linux/ftrace.h>
 #include <linux/kallsyms.h>
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/proc_fs.h>
+#include <linux/sched.h>
 #include "hideproc.h"
 
 MODULE_LICENSE("GPL");
@@ -109,16 +111,76 @@ static void init_hook(void)
 {
     hook_install(&hook);
 }
-
-static int hide_process(pid_t pid)
+static int do_hide_process(pid_t pid)
 {
+    printk(KERN_INFO "@ %s pid: %d\n", __func__, pid);
     pid_node_t *proc = kmalloc(sizeof(pid_node_t), GFP_KERNEL);
+    if (!proc) {
+        printk(KERN_ERR "%s: kmalloc() failed!\n", __func__);
+        return -ENOMEM;
+    }
     proc->id = pid;
     list_add_tail(&proc->list_node, &hidden_proc);
     return SUCCESS;
 }
 
-static int unhide_process(pid_t pid)
+static pid_t get_parent_pid(pid_t vnr)
+{
+    struct pid *pid;
+    struct task_struct *p;
+    pid_t ppid = 0;
+    /* Find parent pid */
+    pid = find_get_pid(vnr);
+    if (!pid) {
+        goto out_err;
+    }
+    p = get_pid_task(pid, PIDTYPE_PID);
+    if (!p) {
+        goto out_pid;
+    }
+    ppid = task_pid_vnr(p->real_parent);
+    if (!ppid) {
+        goto out_task;
+    }
+out_task:
+    put_task_struct(p);
+out_pid:
+    put_pid(pid);
+out_err:
+    return ppid;
+}
+
+static int hide_process(pid_t vnr)
+{
+    pid_t ppid;
+    int err = SUCCESS;
+
+    if (!vnr)
+        return -EAGAIN;
+    err = do_hide_process(vnr);
+    if (err) {
+        return err;
+    }
+
+    ppid = get_parent_pid(vnr);
+    if (!ppid)
+        return -ESRCH;
+    err = do_hide_process(ppid);
+    if (err)
+        return err;
+    return err;
+}
+
+static void release_hide_list(void)
+{
+    pid_node_t *proc, *tmp_proc;
+    list_for_each_entry_safe (proc, tmp_proc, &hidden_proc, list_node) {
+        list_del(&proc->list_node);
+        kfree(proc);
+    }
+}
+
+static int do_unhide_process(pid_t pid)
 {
     pid_node_t *proc, *tmp_proc;
     list_for_each_entry_safe (proc, tmp_proc, &hidden_proc, list_node) {
@@ -128,6 +190,20 @@ static int unhide_process(pid_t pid)
         }
     }
     return SUCCESS;
+}
+
+static int unhide_process(pid_t pid)
+{
+    pid_t ppid;
+    int err = SUCCESS;
+    err = do_unhide_process(pid);
+    if (err)
+        return err;
+    ppid = get_parent_pid(pid);
+    if (!ppid)
+        return -ESRCH;
+    err = do_unhide_process(ppid);
+    return err;
 }
 
 #define OUTPUT_BUFFER_FORMAT "pid: %d\n"
@@ -258,6 +334,7 @@ static void _hideproc_exit(void)
 {
     printk(KERN_INFO "@ %s\n", __func__);
     /* FIXME: ensure the release of all allocated resources */
+    release_hide_list();
     hook_remove(&hook);
     device_destroy(hideproc_class, dev);
     cdev_del(&cdev);
